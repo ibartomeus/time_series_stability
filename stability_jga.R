@@ -11,9 +11,9 @@ library(data.table)
 
 n_years=10
 years=1:n_years
-r_obs=0
-phi=0.75
-sdev=0.15
+r_obs=-0.02
+phi=0.2
+sdev=0.20
 mu_zero = runif(1, 0.2, 90)
 
 simulate_ts <- function(r, phi, sdev, mu_zero, years, n_rep) {
@@ -58,7 +58,7 @@ simulate_ts <- function(r, phi, sdev, mu_zero, years, n_rep) {
 res_obs=simulate_ts (r=r_obs, phi=phi, sdev=sdev, mu_zero=mu_zero, years=years, n_rep=1)
 res_sim=simulate_ts (r=0, phi=phi, sdev=sdev, mu_zero=mu_zero, years=years, n_rep=100)
 
-plot(res$abund ~ res$year, type = "b", main = paste0("phi=", phi, ", sdev=", sdev, ", r=", r_obs))
+plot(res_obs$abund ~ res_obs$year, type = "b", main = paste0("phi=", phi, ", sdev=", sdev, ", r=", r_obs))
 
 # ------------------------------------------------------------
 # 2. Run model and extract time-series characteristics
@@ -84,7 +84,6 @@ run_model <- function (df_full) {
   m <- glmmTMB(abund ~ YEAR2 + ar1(YEAR3 + 0 | group), data = df, family = poisson)
   m_aut_null <- glmmTMB(abund ~ YEAR2, data = df, family = poisson)
   m_null <- glmmTMB(abund ~ 1, data = df, family = poisson)
-  
   
   df_model=data.frame(
     repi=i,
@@ -117,5 +116,32 @@ df_model_obs=run_model(res_obs)
 
 quantiles=quantile(df_model_sim$r_estimated,probs=c(0.025,0.975))
 hist(df_model_sim$r_estimated)
-compatible_with_null_model=quantiles[1]<df_model_obs$r_estimated & df_model_obs$r_estimated<quantiles[2]
+compatible_with_null_model <- quantiles[1] < df_model_obs$r_estimated & df_model_obs$r_estimated < quantiles[2]
 compatible_with_null_model
+
+mean(df_model_sim$r_estimated)
+sd(df_model_sim$r_estimated)
+df_model_obs$r_estimated
+
+z_score <- (df_model_obs$r_estimated - mean(df_model_sim$r_estimated)) / sd(df_model_sim$r_estimated)
+df_model_obs$slope_pval
+2 * (1 - pnorm(abs(z_score)))
+
+q <- quantile(
+  df_model_sim$r_estimated,
+  c(0.025, 0.975)
+)
+
+ggplot(df_model_sim, aes(r_estimated)) +
+  geom_text(aes(x=0, y=13,label=paste0("model p-value= ",round(df_model_obs$slope_pval,3), "\n",
+                                       "null model p-value= ",round(2 * (1 - pnorm(abs(z_score))),3)))) +
+  geom_histogram() +
+  geom_vline(xintercept = q,
+             linetype = 2,
+             colour = "blue") +
+  geom_vline(
+    xintercept = df_model_obs$r_estimated,
+    colour = "red") +
+  labs(x = "Estimated trend (r)", y = "Frequency")
+
+
