@@ -24,46 +24,34 @@ insects_biotime_models = biotime %>% filter(class=="Insecta") %>%
 
 model_1 = biotime %>% filter(MODEL_ID=="788-NA-Eristalis tenax")
 
-plot(model_1$ABUNDANCE ~ model_1$YEAR, type = "b")
-
 model_1$year = model_1$YEAR
 model_1$YEAR3 =  factor(model_1$YEAR2)
 model_1$abund =  model_1$ABUNDANCE
 model_1$repi = 1
+model_1$phi_sim=rep(2, nrow(model_1))
+model_1$sdev_sim=rep(2, nrow(model_1))
+model_1$r_sim =rep(2, nrow(model_1))
 
-df=model_1
-i=1
+plot(model_1$ABUNDANCE ~ model_1$YEAR, type = "b")
 
-    m <- glmmTMB(abund ~ YEAR2 + ar1(YEAR3 + 0 | group), data = df, family = poisson)
-    m_aut_null <- glmmTMB(abund ~ YEAR2, data = df, family = poisson)
-    m_null <- glmmTMB(abund ~ 1, data = df, family = poisson)
-    
-    df_model=data.frame(
-      repi=i,
-      var = var(m$frame$abund),
-      duration = length(unique(df$YEAR2)),
-      mean = mean(m$frame$abund),
-      slope_pval = summary(m)$coefficients$cond[2, "Pr(>|z|)"],
-      slope_estimated = fixef(m)$cond[[2]],
-      r_estimated = exp(fixef(m)$cond[[2]]) - 1,
-      sdev_estimated = as.vector(exp(m$sdr$par.fixed[3])), 
-      phi_estimated = attr(VarCorr(m)$cond$group, "correlation")[2], 
-      aic = AIC(m), 
-      aic_null = AIC(m_null), 
-      r2_conditional  = 1 - logLik(m)[1] / logLik(m_null)[1], 
-      r2_marginal     = 1 - logLik(m_aut_null)[1] / logLik(m_null)[1], 
-      convergence = m$fit$convergence == 0, 
-      message = m$fit$message
-    )
-    
+window=1:6
+n_models=nrow(model_1)-length(window)+1
+model_chunks <- vector("list", n_models)
 
-df_model
+for(i in 1:n_models){
+  model <- model_1[window + i - 1, ]
+  model$repi <- i
+  model_chunks[[i]] <- model
+}
 
-df_model$sdev_estimated
+models_window_df=do.call(rbind,model_chunks)
 
-res_sim=simulate_ts (r=0, phi=df_model$phi_estimated, sdev=df_model$sdev_estimated, mu_zero=mu_zero, years=1:6, n_rep=100)
-df_model_sim=run_model(res_sim)
+LTS = run_model(model_1)
+STS = run_model(models_window_df)
+STS_sim_df = simulate_ts (r=0, phi=LTS$phi_estimated, sdev=LTS$sdev_estimated, mu_zero=LTS$mean, years=1:6, n_rep=100)
+STS_sim = run_model(STS_sim_df)
 
+hist(STS_sim$r_estimated)
 
 check_results <- function (model_empiric, model_simulated) {
   
@@ -74,21 +62,25 @@ check_results <- function (model_empiric, model_simulated) {
   p_value_z <- 2 * (1 - pnorm(abs(z_score)))
   cat("p value null model = ", p_value_z, "\n")
   cat("p value glm = ", round(model_empiric$slope_pval,7), "\n")
+  return(p_value_z)
 
 }
 
-check_results(model_empiric = df_model, model_simulated = df_model_sim)
+check_results(model_empiric = STS[6,], model_simulated = STS_sim)
 
 plot_results <- function (model_empiric, model_simulated) {
-  
+  model_empiric=STS[6,]
+  model_simulated=STS_sim
   q <- quantile(
     model_simulated$r_estimated,
     c(0.025, 0.975)
   )
-
+  z_score <- (model_empiric$r_estimated - mean(model_simulated$r_estimated)) / sd(model_simulated$r_estimated)
+  p_value_z <- 2 * (1 - pnorm(abs(z_score)))
+  
 ggplot(model_simulated, aes(r_estimated)) +
   geom_text(aes(x=0, y=13,label=paste0("model p-value= ",round(model_empiric$slope_pval,3), "\n",
-                                       "null model p-value= ",round(2 * (1 - pnorm(abs(z_score))),3)))) +
+                                       "null model p-value= ",round(p_value_z,3)))) +
   geom_histogram() +
   geom_vline(xintercept = q,
              linetype = 2,
@@ -101,5 +93,8 @@ ggplot(model_simulated, aes(r_estimated)) +
 
 }
 
-plot_results(model_empiric = df_model, model_simulated = df_model_sim)
+plot_results(model_empiric = STS[6,], model_simulated = STS_sim)
+
+
+
 
