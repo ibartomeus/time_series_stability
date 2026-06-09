@@ -4,6 +4,7 @@ library(mvtnorm)
 library(glmmTMB)
 library(MASS)
 library(data.table)
+library(ggplot2)
 
 # ------------------------------------------------------------
 # 1. Simulate n Poisson-lognormal AR1 time series
@@ -57,6 +58,7 @@ simulate_ts <- function(r, phi, sdev, mu_zero, years, n_rep) {
 
 res_obs=simulate_ts (r=r_obs, phi=phi, sdev=sdev, mu_zero=mu_zero, years=years, n_rep=1)
 res_sim=simulate_ts (r=0, phi=phi, sdev=sdev, mu_zero=mu_zero, years=years, n_rep=100)
+res_obs=simulate_ts (r=r_obs, phi=phi, sdev=sdev, mu_zero=mu_zero, years=1:20, n_rep=1)
 
 plot(res_obs$abund ~ res_obs$year, type = "b", main = paste0("phi=", phi, ", sdev=", sdev, ", r=", r_obs))
 
