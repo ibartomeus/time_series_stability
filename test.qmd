@@ -1,0 +1,88 @@
+---
+title: "Testing if short time series trends are compatible with long term stable trends"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## *In silico* test
+
+We know short time series are not reliable (refs), and can show transient trends not representative of a medium or long term trend. Here we propose a metric to complement short term linear trend analysis (e.g. using GLM) asking if the observed trend is compatible with a long term trend. This is analogous to a strtuctural stability view, where we test which is the range of short term trends that stable populations can display. Hence, a STS can be declining, but this decline is compatible with stable LTS, or it can be declining and the observed decline is unlikely to come from a stable LTS.
+
+To test this idea we start by simulating a LTS with known parameters. Next, we take a slice of this LTS to crate a STS (years = 6). Finally, we create null models based on the long term parameters, but with a stable trend (slope = 0) and a restricted number of years (years = 6).
+
+```{r}
+#source("stability_jga.R")
+set.seed(1234)
+#Create LTS params
+n_years <- 20
+years <- 1:n_years
+r_obs <- -0.02 #slope
+phi <- 0 #autocorrelation
+sdev <- 0.20 #variability
+mu_zero <-  runif(1, 0.2, 90) #intercept
+
+#create a realized time series
+LTS <- simulate_ts(r=r_obs, phi=phi, sdev=sdev, mu_zero=mu_zero, years=years, n_rep=1)
+plot(LTS$abund ~ LTS$year, t = "b")
+
+#We cut a 6 years STS
+#stable
+STS_0 <- LTS[8:13,] #manually chossen
+STS_D <- LTS[1:6,] #manually chossen
+plot(STS_0$abund ~ STS_0$year, t = "b")
+plot(STS_D$abund ~ STS_D$year, t = "b")
+
+#See ST trend using GLM
+STS_0_model <- run_model(STS_0)
+STS_D_model <- run_model(STS_D)
+#I ignore warnings for now...
+
+#Create null models with stable trend and 6 years (TS + modles)
+null <- simulate_ts(r=0, phi=phi, sdev=sdev, mu_zero=mu_zero, years=1:6, n_rep=100)
+null_models <- run_model(null)
+#ignoring warnings so far (prune?)
+
+
+#Finally we need to comapre both
+#NOTE: this will be funcionalized
+quantiles <- quantile(null_models$r_estimated,probs=c(0.025,0.975))
+hist(null_models$r_estimated)
+compatible_with_null_model <- quantiles[1] < STS_0_model$r_estimated & STS_0_model$r_estimated < quantiles[2]
+compatible_with_null_model
+
+compatible_with_null_model <- quantiles[1] < STS_D_model$r_estimated & STS_D_model$r_estimated < quantiles[2]
+compatible_with_null_model
+
+mean(null_models$r_estimated)
+sd(null_models$r_estimated)
+#null_models$r_estimated
+
+z_score <- (STS_D_model$r_estimated - mean(null_models$r_estimated)) / sd(null_models$r_estimated)
+STS_D_model$slope_pval
+2 * (1 - pnorm(abs(z_score)))
+
+q <- quantile(
+  null_models$r_estimated,
+  c(0.025, 0.975)
+)
+
+ggplot(null_models, aes(r_estimated)) +
+  geom_text(aes(x=0, y=13,label=paste0("model p-value= ",round(df_model_obs$slope_pval,3), "\n",
+                                       "null model p-value= ",round(2 * (1 - pnorm(abs(z_score))),3)))) +
+  geom_histogram() +
+  geom_vline(xintercept = q,
+             linetype = 2,
+             colour = "blue") +
+  geom_vline(
+    xintercept = STS_D_model$r_estimated,
+    colour = "red") +
+  labs(x = "Estimated trend (r)", y = "Frequency")
+```
+
+We can say there is a 20% chances that the 6 year observed trend comes from a stable population. However, note that the STS slope estimated is -0.12, while the LTS trend is -0.02. So this is a SING test.
+
+Note, for stable STS trends, we can't say anything. This tool is only to catch transient trends that are compatible with declines.
+
+Also note that for positive slopes we need to do 1-q to ontain the probability.
