@@ -82,15 +82,13 @@ for(i in 1:100){ #100 replicates
   #create LTS
   n_years <- 20
   years <- 1:n_years
-  r_obs <- -0.02 #slope
-  phi <- 0 #autocorrelation
-  sdev <- 0.20 #variability
+  r_obs <- sample(x = c(-0.1, -0.05, 0), size = 1) #slope median -0.01
+  phi <- -0.01 #autocorrelation # 0 is the median.
+  sdev <- 0.75 #variability # 0.75 is the median for insects
   mu_zero <-  runif(1, 0.2, 90) #intercept
   #create a realized time series
   LTS <- simulate_ts(r=r_obs, phi=phi, sdev=sdev, mu_zero=mu_zero,
                      years=years, n_rep=1)
-  out[i,"LTS_rep"] <- i
-  out[i,"LTS_slope"] <- r_obs #other params can be stored
   #We cut a 6 years STS
   window <- 1:6
   n_models <- n_years-length(window)+1
@@ -99,10 +97,19 @@ for(i in 1:100){ #100 replicates
   null <- simulate_ts(r=0, phi=phi, sdev=sdev, mu_zero=mu_zero, 
                         years=window, n_rep=100)
   null_models <- run_model(null)
+  #remove models not converging ###ALSO DO IT IN THE LOOPS FOR 6-y
+  null_models$conv <- 1
+  null_models$conv[which(null_models$convergence==FALSE | 
+                           is.na(null_models$aic) | 
+                           is.na(null_models$mu_zero_estimated_se) |
+                           null_models$hessian_pos_def==FALSE)] <- 0
+  null_models <- subset(null_models, conv==1)
+  ###
   #loop through chunks
   for(j in 1:n_models){
+    out[i+j,"LTS_rep"] <- i
+    out[i+j,"LTS_slope"] <- r_obs #other params can be stored
     STS_temp <- LTS[window + j - 1, ] 
-    STS_chunks[[j]] <- STS_temp
     #See ST trend using GLM
     STS_model_temp <- run_model(STS_temp)
     out[i+j,"STS_rep"] <- j    
@@ -111,12 +118,17 @@ for(i in 1:100){ #100 replicates
     out[i+j,"STS_null"] <- check_results(model_empiric = STS_model_temp,
                                          model_simulated = null_models)
   }
+  print(i)
 }
 #make bins
-out$bins <- ifelse(out$STS_slope < -0.1 & out$LTS_slope = 0.02, "-ST-LT",
-                   ifelse(out$STS_slope < -0.1 & out$LTS_slope = 0, 
+out
+dim(out)
+hist(out)
+
+out$bins <- ifelse(out$STS_slope < -0.1 & out$LTS_slope < -0.02, "-ST-LT",
+                   ifelse(out$STS_slope < -0.1 & out$LTS_slope > +0.02, 
                           "-ST*LT",
                           ))
-
+#probbaly based on p-values?
 boxplot(out$STS_null ~ out$bins)
 ```
