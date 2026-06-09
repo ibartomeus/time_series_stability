@@ -14,6 +14,7 @@ To test this idea we start by simulating a LTS with known parameters. Next, we t
 
 ```{r}
 #source("stability_jga.R")
+#source("results_functions.R") #note, need to unify all functions in a single file.
 set.seed(1234)
 #Create LTS params
 n_years <- 20
@@ -46,43 +47,76 @@ null_models <- run_model(null)
 
 
 #Finally we need to comapre both
-#NOTE: this will be funcionalized
-quantiles <- quantile(null_models$r_estimated,probs=c(0.025,0.975))
-hist(null_models$r_estimated)
-compatible_with_null_model <- quantiles[1] < STS_0_model$r_estimated & STS_0_model$r_estimated < quantiles[2]
-compatible_with_null_model
+check_results(model_empiric = STS_0_model,
+              model_simulated = null_models)
+#Here I would phrase it diferently.
 
-compatible_with_null_model <- quantiles[1] < STS_D_model$r_estimated & STS_D_model$r_estimated < quantiles[2]
-compatible_with_null_model
+check_results(model_empiric = STS_D_model,
+              model_simulated = null_models)
 
-mean(null_models$r_estimated)
-sd(null_models$r_estimated)
-#null_models$r_estimated
+plot_results(model_empiric = STS_0_model, 
+             model_simulated = null_models)
+#check warning
 
-z_score <- (STS_D_model$r_estimated - mean(null_models$r_estimated)) / sd(null_models$r_estimated)
-STS_D_model$slope_pval
-2 * (1 - pnorm(abs(z_score)))
-
-q <- quantile(
-  null_models$r_estimated,
-  c(0.025, 0.975)
-)
-
-ggplot(null_models, aes(r_estimated)) +
-  geom_text(aes(x=0, y=13,label=paste0("model p-value= ",round(df_model_obs$slope_pval,3), "\n",
-                                       "null model p-value= ",round(2 * (1 - pnorm(abs(z_score))),3)))) +
-  geom_histogram() +
-  geom_vline(xintercept = q,
-             linetype = 2,
-             colour = "blue") +
-  geom_vline(
-    xintercept = STS_D_model$r_estimated,
-    colour = "red") +
-  labs(x = "Estimated trend (r)", y = "Frequency")
+plot_results(model_empiric = STS_D_model, 
+             model_simulated = null_models)
+#check warning; also check p-val, which does not change.
 ```
 
-We can say there is a 20% chances that the 6 year observed trend comes from a stable population. However, note that the STS slope estimated is -0.12, while the LTS trend is -0.02. So this is a SING test.
+We can say there is only a 20% chances that the 6 year observed trend comes from a stable population. However, note that the STS slope estimated is -0.12, while the LTS trend is -0.02. So this is a SING test, not a magnitude test.
 
-Note, for stable STS trends, we can't say anything. This tool is only to catch transient trends that are compatible with declines.
+Note, for stable STS trends, we can't say anything. This tool is only to catch transient trends that are compatible with declines. If anything, we would need to build a null model with slope = -0.02 and ask if a stable trend is compatible with a declining LTS.
 
-Also note that for positive slopes we need to do 1-q to ontain the probability.
+Also note that for positive slopes we need to do 1-q to obntain the probability. This means a 50% prob is the max we can attain? This is not intuitive :)
+
+## Run multiple simulations
+
+Let's do the same, but for many simulations. We need to store for each LTS, its slope, and the window slices STS trends and p-values and null %.
+
+```{r}
+out <- data.frame(LTS_rep = NA, LTS_slope = NA, 
+                  STS_rep = NA, STS_slope = NA, STS_s_pv = NA,
+                  STS_null = NA)
+
+for(i in 1:100){ #100 replicates
+  #create LTS
+  n_years <- 20
+  years <- 1:n_years
+  r_obs <- -0.02 #slope
+  phi <- 0 #autocorrelation
+  sdev <- 0.20 #variability
+  mu_zero <-  runif(1, 0.2, 90) #intercept
+  #create a realized time series
+  LTS <- simulate_ts(r=r_obs, phi=phi, sdev=sdev, mu_zero=mu_zero,
+                     years=years, n_rep=1)
+  out[i,"LTS_rep"] <- i
+  out[i,"LTS_slope"] <- r_obs #other params can be stored
+  #We cut a 6 years STS
+  window <- 1:6
+  n_models <- n_years-length(window)+1
+  STS_chunks <- vector("list", n_models)
+  #Create null models with stable trend and e.g. 6 years (TS + modles)
+  null <- simulate_ts(r=0, phi=phi, sdev=sdev, mu_zero=mu_zero, 
+                        years=window, n_rep=100)
+  null_models <- run_model(null)
+  #loop through chunks
+  for(j in 1:n_models){
+    STS_temp <- LTS[window + j - 1, ] 
+    STS_chunks[[j]] <- STS_temp
+    #See ST trend using GLM
+    STS_model_temp <- run_model(STS_temp)
+    out[i+j,"STS_rep"] <- j    
+    out[i+j,"STS_slope"] <- STS_model_temp$r_estimated
+    out[i+j,"STS_s_pv"] <- STS_model_temp$slope_pval
+    out[i+j,"STS_null"] <- check_results(model_empiric = STS_model_temp,
+                                         model_simulated = null_models)
+  }
+}
+#make bins
+out$bins <- ifelse(out$STS_slope < -0.1 & out$LTS_slope = 0.02, "-ST-LT",
+                   ifelse(out$STS_slope < -0.1 & out$LTS_slope = 0, 
+                          "-ST*LT",
+                          ))
+
+boxplot(out$STS_null ~ out$bins)
+```
